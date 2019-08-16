@@ -154,4 +154,4 @@ class AC_Model(tf.keras.Model):
 
     # standard entropy
     def softmax_entropy(self, p0):
-        return - tf.reduce_sum(p0 * tf.math.log(p0 + 1e-16), axis=1)
+        return - tf.reduce_sum(p0 * tf.math.log(p0 + 1e-20), axis=1)

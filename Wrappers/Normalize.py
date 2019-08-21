@@ -13,12 +13,17 @@ class Normalize(Wrapper):
 
     def step(self, action):
         observation, reward, done, info = self.env.step(action)
+        
+        # Punish and discourage terminal states or info['ale.lives'] < 3
         if done:
-            reward = -10.0
-        return self.observation(observation), self.reward(reward - 0.01), done, info
+            reward += -1.0
+            done = True
+
+        # Add a living cost
+        return self.observation(observation), self.reward(reward) - .01, done, info
 
     def reward(self, reward):
-        return (reward / 10.0) 
+        return (reward) 
 
     def observation(self, observation):
         return observation / 256.0

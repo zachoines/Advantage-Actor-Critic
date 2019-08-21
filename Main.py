@@ -13,6 +13,8 @@ import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 from tensorflow.python.client import device_lib
 
+from Wrappers.preprocess import FrameSkip
+
 
 print("GPU Available: ", tf.test.is_gpu_available())
 
@@ -50,9 +52,15 @@ if gpus:
 
 # Environments to run
 env_1 = 'MsPacman-ram-v0'
-
-# env_names = [env_1]
-env_names = [env_1, env_1, env_1, env_1]
+env_6 = 'CartPole-v0'
+env_5 = 'MsPacman-ram-v4'
+env_2 = "Breakout-ram-v0"
+env_3 = "Pong-ramDeterministic-v4"
+env_4 = "MsPacman-ramDeterministic-v4"
+# env_names = [env_4, env_4, env_5, env_5]
+env_names = [env_6, env_6, env_6, env_6]
+# env_names = [env_1, env_1, env_1, env_1, env_1, env_1]
+# env_names = [env_4]
 
 # Configuration
 current_dir = os.getcwd()
@@ -62,17 +70,17 @@ record = True
 
 # Enviromental vars
 num_envs = len(env_names)
-batch_size = 16
-batches_per_epoch = sys.maxsize
-num_epocs = 512 * 5
+batch_size = 32
+batches_per_epoch = 1000000
+num_epocs = 512 * 10
 gamma = .99
 learning_rate = 7e-4
-anneling_steps = num_epocs * 256
+anneling_steps = num_epocs 
 
 # Make the super mario gym environments and apply wrappers
 envs = []
 collector = Collector()
-collector.set_dimensions(["CMA", "LENGTH", "LOSS"])
+collector.set_dimensions(["CMA", "EMA", "SMA", "LENGTH", "LOSS", 'TOTAL_EPISODE_REWARDS'])
 plot = AsynchronousPlot(collector, live=False)
 
 # Apply env wrappers
@@ -80,7 +88,8 @@ counter = 0
 for env in env_names:
     counter += 1
     env = gym.make(env)
-    env = Normalize(env)
+    # env = Normalize(env)
+    # env = FrameSkip(env, 4)
     env = Stats(env, collector)
     envs.append(env)
 
@@ -99,10 +108,11 @@ workers = []
 network_params = (NUM_STATE, batch_size, NUM_ACTIONS, ACTION_SPACE)
 
 # Init Global and Local networks. Generate Weights for them as well.
-Global_Model = AC_Model(NUM_STATE, NUM_ACTIONS, is_training=True)
-Global_Model(tf.convert_to_tensor(np.random.random((1, 128))))
-step_model = AC_Model(NUM_STATE, NUM_ACTIONS, is_training=True)
-step_model(tf.convert_to_tensor(np.random.random((1, 128))))
+Global_Model = AC_Model(NUM_STATE[0], NUM_ACTIONS, is_training=True, dropout_rate=0.5)
+Global_Model(tf.convert_to_tensor(np.random.random((1, NUM_STATE[0]))))
+step_model = AC_Model(NUM_STATE[0], NUM_ACTIONS, is_training=True, dropout_rate=0.5)
+step_model(tf.convert_to_tensor(np.random.random((1, NUM_STATE[0]))))
+
 
 
 # Load model if exists
@@ -114,6 +124,7 @@ else:
             
             Global_Model.load_model_weights()
             step_model.load_model_weights()
+
             for env in envs:
                 workers.append(Worker(step_model, env, batch_size=batch_size, render=False))
             

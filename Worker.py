@@ -22,7 +22,7 @@ class WorkerThread(Thread):
 # Class to represent a worker in an environment. Call run() to generate a batch. 
 class Worker():
 
-    def __init__(self, network, env, batch_size = 32, render = True, exploration="bayesian"):
+    def __init__(self, network, env, batch_size = 32, render = True, exploration="Epsilon_greedy"):
 
         # Epsisode collected variables
         self._batch_buffer = []
@@ -53,8 +53,11 @@ class Worker():
             # Make a prediction and take a step if the epoc is not done
             if not self._done:
                 self.total_steps += 1
-                [logits], [action_dist] , value = self.network.step(np.expand_dims(self.s, axis=0), keep_prob)
-                action = self.action_select(logits, exploration="Epsilon_greedy", temperature=1 - keep_prob)
+                [logits], [action_dist], value = self.network.step(np.expand_dims(self.s, axis=0), keep_p=keep_prob)
+
+                # temperature=(1 - keep_prob) * 10
+                # , exploration="Epsilon_greedy" exploration="boltzmann"
+                action = self.action_select(logits, exploration="Epsilon_greedy", temperature=(1 - keep_prob))
                 s_t, reward, d, stuff = self.env.step(action)
                 self._done = d
 
@@ -82,25 +85,18 @@ class Worker():
             
 
     # Boltzmann Softmax style action selection
-    def action_select(self, dist, exploration="Epsilon_greedy", temperature=1.0, epsilon=.05):
+    def action_select(self, dist, exploration="Epsilon_greedy", temperature=1.0, epsilon=.2):
         
-
         if exploration == "boltzmann":        
-
-            dist = tf.nn.softmax(dist * temperature).numpy()
-            a = np.random.choice(dist,p=dist)
-            probs = dist == a
-            probs = dist
-            a = np.argmax(probs)
-
-            # exp_preds = np.exp((dist + 1e-20) / temperature ).astype("float64")
-            # preds = exp_preds / np.sum(exp_preds)
             
-            # [probas] = np.random.multinomial(1, dist, 1)
-            # a = np.argmax(probas)
+            dist = tf.nn.softmax(dist / ((temperature) * 10)).numpy()
+
+            [probas] = np.random.multinomial(1, dist, 1)
+            a = np.argmax(probas)
             return a
+
         
-        # Use with large dropout annealed over time
+        # Use with large dropout annealed over time. Use 'update_dropout_and_refresh_params()' 
         elif exploration == "bayesian":
             
             return np.argmax(dist)
@@ -113,10 +109,14 @@ class Worker():
                 return random.randint(0, self.NUM_ACTIONS-1)
 
             else:
-
-                dist = tf.nn.softmax(dist * temperature).numpy() 
-                a = np.random.choice(dist,p=dist)
-                probs = dist == a
-                a = np.argmax(probs)
+                # dist = tf.nn.softmax(dist).numpy() 
+                # a = np.argmax(dist)
+                dist = tf.nn.softmax(dist / ((temperature) * 10)).numpy()
+                [probas] = np.random.multinomial(1, dist, 1)
+                a = np.argmax(probas)
                 return a
+        else:
+            
+            noise = tf.random.uniform(dist.shape)
+            return tf.argmax(dist - tf.math.log(-tf.math.log(noise))).numpy()
 

@@ -1,5 +1,5 @@
-# AC2_AI
-AI model utilizing the Advantage Actor Critic (AC2) strategy. 
+# PPO_AI
+AI model utilizing the Proximal Policy Optimization algorithm in the common Actor Critic style network strategy. This branch in particular utilizes the atari 128 byte ram environments from OpenAI.
 
 ### Installation
 Should be able to get working with pip package manager. Simply type "pip install -r requirements.txt"

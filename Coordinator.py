@@ -15,8 +15,8 @@ from Worker import Worker, WorkerThread
 
 
 class Coordinator:
-    def __init__(self, model, local_model, workers, plot, num_envs, num_epocs, batches_per_epoch, batch_size, gamma, model_save_path, anneling_steps):
-        self.global_model = model
+    def __init__(self, global_model, local_model, workers, plot, num_envs, num_epocs, batches_per_epoch, batch_size, gamma, model_save_path, anneling_steps):
+        self.global_model = global_model
         self.local_model = local_model
         self.model_save_path = model_save_path
         self.workers = workers
@@ -30,25 +30,29 @@ class Coordinator:
         self.total_steps = 0
         self.pre_train_steps = 0
         self._currentE = 1.0
+        self.current_prob = 0.0
         self.anneling_steps = anneling_steps
         self._current_annealed_prob = 1.0
         self._train_data = None
-        # self.optimizer = tf.keras.optimizers.RMSprop(learning_rate=7e-4, clipnorm=.50)
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=7e-4, clipnorm=.50)
- 
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=0.0007, epsilon=1e-5, clipnorm=.50)
+
     # Annealing entropy to encourage convergence later: 1.0 to 0.01
     def _current_entropy(self):
-        startE = 1.0
+        startE = .30
         endE = 0.01 
 
         # Final chance of random action
         stepDrop = (startE - endE) / self.anneling_steps
+
+        if self.total_steps % 256 == 0:
+            print("Current entropy is: " + str(self._current_annealed_prob))
 
         if self._current_annealed_prob >= endE:
             self._current_annealed_prob -= stepDrop
             return self._current_annealed_prob
         else:
             return 0.01 
+    
     # STD Mean normalization
     def _normalize(self, x, clip_range=[-100.0, 100.0]):
         norm_x = tf.clip_by_value((x - tf.reduce_mean(x)) / tf.math.reduce_std(x), min(clip_range), max(clip_range))
@@ -68,10 +72,18 @@ class Coordinator:
         stepDrop = (startE - endE) / self.anneling_steps
 
         if self._currentE >= endE and total_steps >= pre_train_steps:
+            
             self._currentE -= stepDrop
-            return keep_per()
+            p = keep_per()
+
+            if self.total_steps % 256 == 0:
+                print("Current temp is: " + str(p))
+            
+            self.current_prob = p
+            return p
+
         else:
-            print("Anneling Finished")
+            self.current_prob = 1
             return 1.0      
     
     # Convert numbered actions into one-hot formate [0 , 0, 1, 0, 0]
@@ -84,6 +96,21 @@ class Coordinator:
         labels_one_hot = labels_one_hot.tolist()
         return labels_one_hot
 
+    # Update dropout 
+    def update_dropout_and_refresh_params(self):
+        state_shape = self.global_model.state_shape
+
+        new_global_model = AC_Model(state_shape=state_shape, is_training=True, num_actions=self.global_model.num_actions, dropout_rate=1-self.current_prob)
+        new_global_model(tf.convert_to_tensor(np.random.random((1, state_shape))))
+        new_global_model.set_weights(self.global_model.get_weights())
+        self.global_model = new_global_model
+        
+        new_local_model = AC_Model(state_shape=state_shape, is_training=True, num_actions=self.local_model.num_actions, dropout_rate=1-self.current_prob)
+        new_local_model(tf.convert_to_tensor(np.random.random((1, state_shape))))
+        new_local_model.set_weights(self.global_model.get_weights())
+        self.local_model = new_local_model
+
+
     # Used to copy over global variables to local network 
     def refresh_local_network_params(self):
         global_weights = self.global_model.get_weights()
@@ -91,75 +118,38 @@ class Coordinator:
        
     # pass a tuple of (batch_states, batch_actions,batch_rewards)
     def loss(self):
-        
+        prob = self.current_prob
         batch_states, actions, rewards, batch_advantages, _ = self._train_data
         actions_hot = tf.one_hot(actions, self.global_model.num_actions, dtype=tf.float64)
-        logits, action_dist, values = self.global_model.call(tf.convert_to_tensor(np.vstack(np.expand_dims(batch_states, axis=1)), dtype=tf.float64))
+        logits, action_dist, values = self.global_model.call(tf.convert_to_tensor(np.vstack(np.expand_dims(batch_states, axis=1)), dtype=tf.float64), keep_p=prob)
         rewards = tf.Variable(rewards, name="rewards", dtype=tf.float64, trainable=False)
-        advantages = rewards - tf.squeeze(values)
+        
+        # Remove the extra dims
+        values = tf.squeeze(values)
 
+
+        # Calculate and then mean-std normalize advantages
+        advantages = rewards - values
         advantages = self._normalize(advantages)
 
-        # Version 1
-
+        # Entropy bonus
         # Entropy: (1 / n) * - ∑ P_i * Log (P_i)
         entropy = tf.reduce_mean(self.global_model.softmax_entropy(action_dist))
 
-        # Policy Loss:  (1 / n) * ∑ * -log π(a_i|s_i) * A(s_i, a_i) 
+        # Value loss
+        # "MSE" (1 / n) * ∑[V(i) - R_i]^2
+        squared_error = tf.square(values - rewards)
+        value_loss = tf.reduce_mean(squared_error)
+
+        # Policy loss
+        # (1 / n) * ∑ * -log π(a_i|s_i) * A(s_i, a_i) 
         neg_log_prob = tf.nn.softmax_cross_entropy_with_logits(labels=actions_hot, logits=logits) 
-        policy_loss = tf.reduce_mean(neg_log_prob * tf.stop_gradient(advantages))
+        policy_loss = tf.reduce_mean(tf.stop_gradient(advantages) * neg_log_prob)
 
-        # Value loss "MSE": (1 / n) * ∑[V(i) - R_i]^2
-        value_loss = tf.reduce_sum(tf.losses.mean_squared_error(values, rewards))
-        
+        # Final total loss
         # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss
-        self._last_batch_loss = total_loss = 0.5 * value_loss + policy_loss - 0.01 * entropy
-        
-        
+        self._last_batch_loss = total_loss = policy_loss - entropy * self.global_model.entropy_coef + value_loss * self.global_model.value_function_coeff
 
-        # Version 2
-
-        # value_loss = tf.reduce_mean(tf.square(rewards - values))
-        # policy = action_dist
-        # entropy = tf.nn.softmax_cross_entropy_with_logits(labels=policy, logits=logits)
-        # neg_log_pac = tf.math.multiply(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=actions, logits=logits), tf.stop_gradient(advantages))
-        # policy_loss = tf.reduce_mean(tf.math.subtract(neg_log_pac, 0.01 * entropy))
-        # self._last_batch_loss = total_loss = tf.math.add(value_loss, policy_loss)
-        # return total_loss
-
-        # Version 3
-
-        # value_loss = tf.square(rewards - tf.squeeze(values))
-
-        # entropy = tf.reduce_sum(action_dist * tf.math.log(action_dist + 1e-20), axis=1)
-
-        # policy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=actions_hot, logits=logits)
-        # policy_loss *= tf.stop_gradient(advantages)
-        # policy_loss -= 0.01 * entropy
-        # self._last_batch_loss = total_loss = tf.reduce_mean((0.5 * value_loss + policy_loss))
-
-        # Version 4
-        # value_loss = tf.square(rewards - tf.squeeze(values))
-
-        # policy = action_dist
-        # entropy = tf.nn.softmax_cross_entropy_with_logits(labels=policy, logits=logits)
-
-        # policy_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=actions, logits=logits)
-        # policy_loss *= tf.stop_gradient(advantages)
-        # policy_loss -= 0.1 * entropy
-        # self._last_batch_loss = total_loss = tf.reduce_mean((value_loss + policy_loss))
-
-
-        # version 5
-        # responsible_outputs = tf.reduce_sum(action_dist * actions_hot, [1])
-
-        #Loss functions
-        # value_loss = 0.5 * tf.reduce_mean(tf.square(tf.stop_gradient(self._normalize(rewards)) - self._normalize(tf.squeeze(values))))
-        # entropy = - tf.reduce_mean(action_dist * tf.math.log(action_dist))
-        # policy_loss = -tf.reduce_mean(tf.math.log(responsible_outputs) * tf.stop_gradient(advantages))
-        # self._last_batch_loss = total_loss = 0.5 * value_loss + policy_loss - entropy * 0.01
-
-        self._last_batch_loss = total_loss = self._clip_by_range(total_loss, clip_range=[-60, 60])
         return total_loss
       
     def train(self, train_data):
@@ -238,12 +228,13 @@ class Coordinator:
                     
                     self.total_steps += 1   
                     
-                    # Copy global network over to local network
+                    # Copy global network over to local network, update dropout
+                    prob = self._keep_prob()
+                    # self.update_dropout_and_refresh_params() 
                     self.refresh_local_network_params()
 
                     # Send workers out to threads
                     threads = []
-                    prob = self._keep_prob()
                     for worker in self.workers:
                         threads.append(WorkerThread(target=worker.run, args=([prob])))
 
@@ -310,7 +301,7 @@ class Coordinator:
                         boot_strap = 0.0    
 
                         if (not done):
-                            _, _, boot_strap = self.local_model.step(np.expand_dims(observation, axis=0), 1.0)
+                            _, _, boot_strap = self.local_model.step(np.expand_dims(observation, axis=0), keep_p=self.current_prob)
 
                         discounted_bootstrapped_rewards = self.rewards_discounted(batch_rewards, self.gamma, boot_strap)
                         batch_rewards = discounted_bootstrapped_rewards

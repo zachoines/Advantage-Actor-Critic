@@ -12,7 +12,9 @@ import gym
 from AC_Network import AC_Model
 
 # Environments to run
-env = 'MsPacman-ram-v0'
+# env = 'MsPacman-ram-v0'
+env = 'CartPole-v0'
+# env = "Breakout-ram-v0"
 
 # Configuration
 current_dir = os.getcwd()
@@ -21,12 +23,6 @@ record = True
 
 # Enviromental vars
 batch_size = 16
-batches_per_epoch = sys.maxsize
-num_epocs = 512 * 5
-gamma = .99
-learning_rate = 7e-4
-anneling_steps = 512 ** 2
-
 
 # Apply env wrappers
 env = gym.make(env)
@@ -38,8 +34,8 @@ ACTION_SPACE = env.env.action_space
 network_params = (NUM_STATE, batch_size, NUM_ACTIONS, ACTION_SPACE)
 
 # Init Global and Local networks. Generate Weights for them as well.
-Test_Model = AC_Model(NUM_STATE, NUM_ACTIONS, is_training=True)
-Test_Model(tf.convert_to_tensor(np.random.random((1, 128))))
+Test_Model = AC_Model(NUM_STATE, NUM_ACTIONS, is_training=False)
+# Test_Model(tf.convert_to_tensor(np.random.random((1, 128))))
 
 # Generate an batch worth of observations. Return nothing.
 def run(num_steps, env, network, render):
@@ -85,7 +81,7 @@ else:
             Test_Model.load_model_weights()
             print("Model restored.")
             print("Now running environment...")
-            run(1000, env, Test_Model, True)
+            run(10000, env, Test_Model, True)
         
         else:
             raise("There is no model available")

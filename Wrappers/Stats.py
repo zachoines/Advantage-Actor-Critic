@@ -17,27 +17,59 @@ from gym.core import RewardWrapper
 class Stats(RewardWrapper):
     def __init__(self, env, collector):
         super(Stats, self).__init__(env)
+        self.episode_steps = 0
         self.numSteps = 0
         self.collector = collector
         self.CMA = 0
+        self.SMA = lambda: self._updated_moving_average()
+        self.last_values = 0
+        self.EMA = 0
+        self._recent_rewards = []
+        self._buffer_len = 128
+        self.TOTAL_EPISODE_REWARDS = 0
+    def _update_buffer(self, reward):
+        if len(self._recent_rewards) >= self._buffer_len:
+            self._recent_rewards.pop(0)
+            self._recent_rewards.append(reward)
+        else:
+            self._recent_rewards.append(reward)
+    def _updated_moving_average(self):
+        total_reward = 0
+        for elem in self._recent_rewards:
+            total_reward += elem
+        return total_reward / self._buffer_len
 
     def reset(self, **kwargs):
         if self.numSteps > 0:
             self.collector.collect('CMA', self.CMA)
-            self.collector.collect('LENGTH', self.numSteps)
+            self.collector.collect('LENGTH', self.episode_steps)
+            self.collector.collect('TOTAL_EPISODE_REWARDS', self.TOTAL_EPISODE_REWARDS)
+            self.collector.collect('EMA', self.EMA)
+            self.collector.collect('SMA', self._updated_moving_average())
 
-        self.numSteps = 0
-        self.CMA = 0
+        self.episode_steps = 0
+        self.TOTAL_EPISODE_REWARDS = 0
+        
+        # Dont reset EMA, CMA, SMA, or numSteps. These are online numbers.
+
         return self.env.reset(**kwargs)
 
     def step(self, action):
         self.numSteps += 1
+        self.episode_steps += 1
         observation, reward, done, info = self.env.step(action)
         return observation, self.reward(reward), done, info
 
     def reward(self, reward):
+        self.TOTAL_EPISODE_REWARDS += reward
+
         # Cumulative moving average
         self.CMA = (reward + ((self.numSteps - 1) * self.CMA )) / self.numSteps
+
+        # Exponential Moving Average (with 32 step smoothing)
+        self.EMA = (reward * (2 / (1 + 32))) + (self.EMA * (1 - (2 / (1 + 32))))
+
+        self._update_buffer(reward)
         return reward
 
 class AsynchronousPlot(threading.Thread):

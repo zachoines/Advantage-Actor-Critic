@@ -57,7 +57,7 @@ class Worker():
 
                 # temperature=(1 - keep_prob) * 10
                 # , exploration="Epsilon_greedy" exploration="boltzmann"
-                action = self.action_select(logits, exploration="Epsilon_greedy", temperature=(1 - keep_prob))
+                action = self.action_select(logits, temperature=(1 - keep_prob))
                 s_t, reward, d, stuff = self.env.step(action)
                 self._done = d
 
@@ -85,7 +85,7 @@ class Worker():
             
 
     # Boltzmann Softmax style action selection
-    def action_select(self, dist, exploration="Epsilon_greedy", temperature=1.0, epsilon=.2):
+    def action_select(self, dist, exploration="", temperature=1.0, epsilon=.2):
         
         if exploration == "boltzmann":        
             
@@ -98,13 +98,15 @@ class Worker():
         
         # Use with large dropout annealed over time. Use 'update_dropout_and_refresh_params()' 
         elif exploration == "bayesian":
+            if random.random() < (epsilon * temperature):
+                return random.randint(0, self.NUM_ACTIONS-1)
             
             return np.argmax(dist)
         
         elif exploration == "Epsilon_greedy":
             
             # Scale epsilon down to near 0.0 by multiplying .9 ... .1
-            if random.random() < (epsilon * temperature):
+            if random.random() < (epsilon):
                 
                 return random.randint(0, self.NUM_ACTIONS-1)
 
@@ -119,4 +121,5 @@ class Worker():
             
             noise = tf.random.uniform(dist.shape)
             return tf.argmax(dist - tf.math.log(-tf.math.log(noise))).numpy()
+
 

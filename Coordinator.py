@@ -98,6 +98,8 @@ class Coordinator:
 
     # Update dropout 
     def update_dropout_and_refresh_params(self):
+
+        # Basically have to recompile all models with new dropout
         state_shape = self.global_model.state_shape
 
         new_global_model = AC_Model(state_shape=state_shape, is_training=True, num_actions=self.global_model.num_actions, dropout_rate=1-self.current_prob)
@@ -115,43 +117,42 @@ class Coordinator:
     def refresh_local_network_params(self):
         global_weights = self.global_model.get_weights()
         self.local_model.set_weights(global_weights)
-       
-    # pass a tuple of (batch_states, batch_actions,batch_rewards)
+
     def loss(self):
-        prob = self.current_prob
-        batch_states, actions, rewards, batch_advantages, _ = self._train_data
+
+        states, actions, rewards, _, _, done, new_state = self._train_data
+
+        bootstrap = 0.  # terminal
+        if not done:
+            _, _, bootstrap = self.local_model.step(tf.convert_to_tensor(np.expand_dims(new_state, axis=0)), keep_p=0.0)
+
+        # Get discounted rewards
+        discounted_rewards = self.rewards_discounted(rewards, self.gamma, bootstrap)
+
+        logits, action_dist, values = self.global_model.call(tf.convert_to_tensor(tf.convert_to_tensor(np.vstack(np.expand_dims(states, axis=1))), dtype=tf.float64), keep_p=0.0)
         actions_hot = tf.one_hot(actions, self.global_model.num_actions, dtype=tf.float64)
-        logits, action_dist, values = self.global_model.call(tf.convert_to_tensor(np.vstack(np.expand_dims(batch_states, axis=1)), dtype=tf.float64), keep_p=prob)
-        rewards = tf.Variable(rewards, name="rewards", dtype=tf.float64, trainable=False)
-        
-        # Remove the extra dims
-        values = tf.squeeze(values)
-
-
-        # Calculate and then mean-std normalize advantages
+        rewards =  tf.convert_to_tensor(np.array(discounted_rewards)[:, None], dtype=tf.float64)
         advantages = rewards - values
-        advantages = self._normalize(advantages)
+        
+        
+        value_loss = 0.5 * advantages ** 2
+        policy = tf.nn.softmax(logits)
+        entropy = tf.nn.softmax_cross_entropy_with_logits(labels=policy, logits=logits)
+        policy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=actions_hot, logits=logits)
+        policy_loss *= tf.stop_gradient(advantages)
+        policy_loss -= 0.01 * entropy
+        self._last_batch_loss = total_loss = tf.reduce_mean((0.5 * value_loss + policy_loss))
 
-        # Entropy bonus
-        # Entropy: (1 / n) * - ∑ P_i * Log (P_i)
-        entropy = tf.reduce_mean(self.global_model.softmax_entropy(action_dist))
-
-        # Value loss
-        # "MSE" (1 / n) * ∑[V(i) - R_i]^2
-        squared_error = tf.square(values - rewards)
-        value_loss = tf.reduce_mean(squared_error)
-
-        # Policy loss
-        # (1 / n) * ∑ * -log π(a_i|s_i) * A(s_i, a_i) 
-        neg_log_prob = tf.nn.softmax_cross_entropy_with_logits(labels=actions_hot, logits=logits) 
-        policy_loss = tf.reduce_mean(tf.stop_gradient(advantages) * neg_log_prob)
-
-        # Final total loss
-        # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss
-        self._last_batch_loss = total_loss = policy_loss - entropy * self.global_model.entropy_coef + value_loss * self.global_model.value_function_coeff
-
+        # value_loss = tf.reduce_mean(tf.square(rewards - values))
+        # entropy = tf.reduce_sum(action_dist * tf.math.log(action_dist + 1e-20), axis=1)
+        # neg_log_prob = tf.nn.softmax_cross_entropy_with_logits(labels=actions_hot, logits=logits) 
+        # # neg_log_prob = - tf.math.log( tf.reduce_sum(action_dist * actions_hot, axis=1, keepdims=True) + 1e-20)
+        # policy_loss = neg_log_prob * tf.stop_gradient(advantages)
+        # policy_with_entropy = tf.reduce_mean(policy_loss - 0.01 * entropy)
+        # self._last_batch_loss = total_loss = 0.5 * value_loss + policy_with_entropy
         return total_loss
-      
+
+        
     def train(self, train_data):
    
         self._train_data = train_data
@@ -298,14 +299,14 @@ class Coordinator:
                         # Or simply... 
                         # δ_t == G_t - V: 
                         # 
-                        boot_strap = 0.0    
+                        # boot_strap = 0.0    
 
-                        if (not done):
-                            _, _, boot_strap = self.local_model.step(np.expand_dims(observation, axis=0), keep_p=self.current_prob)
+                        # if (not done):
+                        #     _, _, boot_strap = self.local_model.step(np.expand_dims(observation, axis=0), keep_p=self.current_prob)
 
-                        discounted_bootstrapped_rewards = self.rewards_discounted(batch_rewards, self.gamma, boot_strap)
-                        batch_rewards = discounted_bootstrapped_rewards
-                        batch_advantages = np.array(batch_rewards) - np.array(batch_values)
+                        # discounted_bootstrapped_rewards = self.rewards_discounted(batch_rewards, self.gamma, boot_strap)
+                        # batch_rewards = discounted_bootstrapped_rewards
+                        # batch_advantages = np.array(batch_rewards) - np.array(batch_values)
 
                         all_values = np.concatenate((all_values, batch_values), 0) if all_values.size else np.array(batch_values)
                         all_advantages = np.concatenate((all_advantages, batch_advantages), 0) if all_advantages.size else np.array(batch_advantages)
@@ -313,14 +314,24 @@ class Coordinator:
                         all_states = np.concatenate((all_states, batch_states), 0) if all_states.size else np.array(batch_states)
                         all_actions = np.concatenate((all_actions, batch_actions), 0) if all_actions.size else np.array(batch_actions)
 
+                        
+                        data = (batch_states, batch_actions, batch_rewards, batch_advantages, batch_values, done, observation)
+
+                        if len(data[0]) != 0:
+                            self.train(data) 
+                    
+                    # We can do this because: d/dx ∑ loss  == ∑ d/dx loss
+                    data = (all_states, all_actions, all_rewards, all_advantages, all_values)
+                    if len(data[0]) == 0:
+                        break
                            
                     # We can do this because: d/dx ∑ loss  == ∑ d/dx loss
-                    data = (all_states, all_actions, all_rewards.tolist(), all_advantages, all_values)
+                    # data = (all_states, all_actions, all_rewards.tolist(), all_advantages, all_values)
 
-                    if len(data[0]) != 0:
-                        self.train(data) 
-                    else:
-                        break
+                    # if len(data[0]) != 0:
+                    #     # self.train(data) 
+                    # else:
+                    #     break
 
                 try:
                     #Save model and other variables
@@ -350,3 +361,42 @@ class Coordinator:
         
 
 
+
+
+
+# # pass a tuple of (batch_states, batch_actions,batch_rewards)
+#     def loss(self):
+#         prob = self.current_prob
+#         batch_states, actions, rewards, batch_advantages, _ = self._train_data
+#         actions_hot = tf.one_hot(actions, self.global_model.num_actions, dtype=tf.float64)
+#         logits, action_dist, values = self.global_model.call(tf.convert_to_tensor(np.vstack(np.expand_dims(batch_states, axis=1)), dtype=tf.float64), keep_p=prob)
+#         rewards = tf.Variable(rewards, name="rewards", dtype=tf.float64, trainable=True)
+        
+#         # Remove the extra dims
+#         values = tf.squeeze(values)
+
+
+#         # Calculate and then mean-std normalize advantages
+#         advantages = rewards - values
+#         # advantages = self._normalize(advantages)
+
+#         # Entropy bonus
+#         # Entropy: (1 / n) * - ∑ P_i * Log (P_i)
+#         entropy = tf.reduce_mean(self.global_model.logits_entropy(logits))
+
+#         # Value loss
+#         # "MSE" (1 / n) * ∑[V(i) - R_i]^2
+#         squared_error = tf.square(values - rewards)
+#         value_loss = tf.reduce_mean(squared_error)
+
+#         # Policy loss
+#         # (1 / n) * ∑ * -log π(a_i|s_i) * A(s_i, a_i) 
+#         neg_log_prob = tf.nn.softmax_cross_entropy_with_logits(labels=actions_hot, logits=logits) 
+#         policy_loss = tf.reduce_mean(advantages * neg_log_prob)
+
+#         # Final total loss
+#         # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss
+#         self._last_batch_loss = total_loss = policy_loss - entropy * self.global_model.entropy_coef + value_loss * self.global_model.value_function_coeff
+
+
+#         return total_loss

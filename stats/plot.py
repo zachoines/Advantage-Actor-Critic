@@ -12,7 +12,7 @@ from heapq import *
 line_types = ["linear", "log"]
 line_type = line_types[0]
 dimensions = ["CMA", "EMA", "SMA", 'TOTAL_EPISODE_REWARDS', "LENGTH", "LOSS"]
-dimension = dimensions[3]
+dimension = dimensions[5]
 
 # load in data and sort
 heap = []

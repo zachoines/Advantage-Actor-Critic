@@ -9,6 +9,7 @@ import sys
 import numpy as np
 import tensorflow as tf
 
+
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 from tensorflow.python.client import device_lib
@@ -52,14 +53,18 @@ if gpus:
 
 # Environments to run
 env_1 = 'MsPacman-ram-v0'
-env_6 = 'CartPole-v0'
-env_5 = 'MsPacman-ram-v4'
 env_2 = "Breakout-ram-v0"
 env_3 = "Pong-ramDeterministic-v4"
 env_4 = "MsPacman-ramDeterministic-v4"
+env_6 = 'CartPole-v0'
+env_5 = 'MsPacman-ram-v4'
+env_7 = 'FetchPickAndPlace-v1'
+
 # env_names = [env_4, env_4, env_5, env_5]
+#, env_6, env_6, env_6
 env_names = [env_6, env_6, env_6, env_6]
-# env_names = [env_1, env_1, env_1, env_1, env_1, env_1]
+env_names = [env_7, env_7, env_7, env_7]
+# env_names = [env_1, env_1, env_1, env_1]
 # env_names = [env_4]
 
 # Configuration
@@ -70,7 +75,7 @@ record = True
 
 # Enviromental vars
 num_envs = len(env_names)
-batch_size = 32
+batch_size = 16
 batches_per_epoch = 1000000
 num_epocs = 512 * 10
 gamma = .99
@@ -88,7 +93,7 @@ counter = 0
 for env in env_names:
     counter += 1
     env = gym.make(env)
-    # env = Normalize(env)
+    env = Normalize(env)
     # env = FrameSkip(env, 4)
     env = Stats(env, collector)
     envs.append(env)

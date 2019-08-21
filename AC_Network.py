@@ -72,7 +72,7 @@ class AC_Model(tf.keras.Model):
             trainable=is_training )
         
         # self.hiddenLayer4 = tf.keras.layers.Dense(
-        #     256,
+        #     128,
         #     activation="relu",
         #     kernel_initializer=tf.initializers.lecun_uniform(),
         #      # kernel_regularizer=keras.regularizers.l2(l=0.01),
@@ -84,7 +84,7 @@ class AC_Model(tf.keras.Model):
         self.dropout1 = tf.keras.layers.Dropout(dropout_rate)
         self.dropout2 = tf.keras.layers.Dropout(dropout_rate)
         self.dropout3 = tf.keras.layers.Dropout(dropout_rate)
-        # self.dropout4 = tf.keras.layers.Dropout(.5)
+        # self.dropout4 = tf.keras.layers.Dropout(dropout_rate)
 
         # self.L1 = tf.keras.layers.LayerNormalization()
         # self.L2 = tf.keras.layers.LayerNormalization()
@@ -92,7 +92,7 @@ class AC_Model(tf.keras.Model):
         # self.L4 = tf.keras.layers.LayerNormalization()
 
 
-        self.lstm = tf.keras.layers.SimpleRNN(128, trainable=is_training, dtype=tf.float64)
+        # self.lstm = tf.keras.layers.SimpleRNN(128, trainable=is_training, dtype=tf.float64)
 
         # Output Layer consisting of an Actor and a Critic
         self._value = tf.keras.layers.Dense(
@@ -122,13 +122,13 @@ class AC_Model(tf.keras.Model):
         hidden2_out = self.dropout2(hidden2_out)
 
         
-        lstm_out = tf.expand_dims(hidden2_out, axis=1)
-        lstm_out = tf.dtypes.cast(lstm_out, tf.float32)
-        lstm_out = self.lstm(lstm_out)
+        # lstm_out = tf.expand_dims(hidden2_out, axis=1)
+        # lstm_out = tf.dtypes.cast(lstm_out, tf.float32)
+        # lstm_out = self.lstm(lstm_out)
 
         
-        hidden3_out = self.hiddenLayer3(lstm_out)
-        #hidden3_out = self.L3(hidden3_out)
+        hidden3_out = self.hiddenLayer3(hidden2_out)
+        # hidden3_out = self.L3(hidden3_out)
         hidden3_out = self.dropout3(hidden3_out)
         
         # hidden4_out = self.hiddenLayer4(hidden3_out)

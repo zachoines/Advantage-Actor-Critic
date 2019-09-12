@@ -1,4 +1,4 @@
-# PPO_AI
+# AC2 AI Model
 AI model utilizing the Proximal Policy Optimization algorithm in the common Actor Critic style network strategy. This branch in particular utilizes the atari 128 byte ram environments from OpenAI.
 
 ### Installation

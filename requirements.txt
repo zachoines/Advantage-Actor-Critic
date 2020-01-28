@@ -56,7 +56,7 @@ tb-nightly==1.14.0a20190603
 tensorboard==1.14.0
 tensorflow==2.0.0b1
 tensorflow-estimator==1.14.0
-tensorflow-gpu==1.14.0
+tensorflow-gpu==1.15.2
 termcolor==1.1.0
 tf-estimator-nightly==1.14.0.dev2019060501
 tf-nightly-gpu==1.15.0.dev20190629

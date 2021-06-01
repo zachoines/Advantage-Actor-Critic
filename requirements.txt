@@ -62,7 +62,7 @@ tf-estimator-nightly==1.14.0.dev2019060501
 tf-nightly-gpu==1.15.0.dev20190629
 tqdm==4.32.2
 typed-ast==1.4.0
-urllib3==1.25.2
+urllib3==1.26.5
 virtualenv==16.6.0
 websockets==7.0
 Werkzeug==0.15.4

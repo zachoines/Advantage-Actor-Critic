@@ -34,7 +34,7 @@ nes-py==8.0.2
 networkx==2.3
 numpy==1.16.4
 opencv-contrib-python==4.1.0.25
-opencv-python==4.1.0.25
+opencv-python==4.2.0.32
 opt-einsum==2.3.2
 Pillow==6.0.0
 protobuf==3.8.0

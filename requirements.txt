@@ -32,7 +32,7 @@ mypy==0.701
 mypy-extensions==0.4.1
 nes-py==8.0.2
 networkx==2.3
-numpy==1.16.4
+numpy==1.22.0
 opencv-contrib-python==4.1.0.25
 opencv-python==4.1.0.25
 opt-einsum==2.3.2

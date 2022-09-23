@@ -37,7 +37,7 @@ opencv-contrib-python==4.1.0.25
 opencv-python==4.1.0.25
 opt-einsum==2.3.2
 Pillow==6.0.0
-protobuf==3.8.0
+protobuf==3.18.3
 psutil==5.4.8
 pycodestyle==2.5.0
 pygame==1.9.6
